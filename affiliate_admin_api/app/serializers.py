@@ -3,9 +3,10 @@ from rest_framework import serializers
 from shared_models.models import (Store, StoreConfiguration, Product, Profile, ImportTask, CourseProvider, Permission,
                                   CustomRole, CourseEnrollment, Course, Section, CartItem, ProfileCommunicationMedium,
                                   ProfileLink, IdentityProvider, ProfilePreference, SeatBlockReservation,
-                                  SeatReservation, StoreCompany, SeatReservationHistory)
+                                  SeatReservation, StoreCompany, SeatReservationHistory, StoreDomain)
 
 from django_scopes import scopes_disabled
+from django.utils import timezone
 
 
 class PermissionSerializer(serializers.ModelSerializer):
@@ -62,6 +63,14 @@ class ProductSerializer(serializers.ModelSerializer):
             'minimum_fee', 'active_status'
         )
         depth = 1
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+
+        store_domain = StoreDomain.objects.filter(store__id=data['store']['id'], active_status=True, expiry_at__gte=timezone.now())
+        if store_domain.exists():
+            data['store']['domain'] = store_domain.latest('created_at').domain
+        return data
 
 
 class ProfileSerializer(serializers.ModelSerializer):
@@ -227,6 +236,11 @@ class SeatBlockReservationSerializer(serializers.ModelSerializer):
             except CartItem.DoesNotExist:
                 pass
             else:
+                store_domain = ''
+                domain = cart_item.cart.store.stores.filter(active_status=True, expiry_at__gte=timezone.now())
+                if domain.exists():
+                    store_domain = domain.latest('created_at').domain
+
                 data['cart'] = {
                     'id': str(cart_item.cart.id),
                     'order_ref': cart_item.cart.order_ref,
@@ -248,7 +262,8 @@ class SeatBlockReservationSerializer(serializers.ModelSerializer):
                 data['store'] = {
                     'id': str(cart_item.cart.store.id),
                     'url_slug': cart_item.cart.store.url_slug,
-                    'name': cart_item.cart.store.name
+                    'name': cart_item.cart.store.name,
+                    'domain': store_domain
                 }
                 data['purchaser'] = {
                     'id': str(cart_item.cart.profile.id),
